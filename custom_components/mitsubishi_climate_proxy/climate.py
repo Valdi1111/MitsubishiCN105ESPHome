@@ -342,15 +342,11 @@ class MitsubishiHybridClimate(ClimateEntity):
         return None
 
     @property
-    def target_temperature_step(self) -> Optional[float]:
+    def target_temp_step(self) -> Optional[float]:
         """Return the supported step of target temperature."""
         if self._source_state:
-            step = self._source_state.attributes.get("target_temperature_step")
-            if step is not None:
-                return float(step)
-
-        # Fallback standard di 0.5 gradi se la sorgente non lo dichiara
-        return None
+            return self._source_state.attributes.get("target_temp_step", 1)
+        return 1
 
     # ════════════════════════════════════════════════════════════════
     # HVAC mode
@@ -540,7 +536,8 @@ class MitsubishiHybridClimate(ClimateEntity):
     def fan_modes(self) -> Optional[List[str]]:
         """Return the list of available fan modes."""
         if self._source_state:
-            return ["auto", "diffuse", "low", "middle", "medium", "high"]#self._source_state.attributes.get("fan_modes")
+            return ["auto", "diffuse", "low", "middle", "medium", "high"]
+            #return self._source_state.attributes.get("fan_modes")
         return None
 
     async def async_set_fan_mode(self, fan_mode: str) -> None:
@@ -740,18 +737,14 @@ class MitsubishiHybridClimate(ClimateEntity):
 
     @property
     def min_temp(self) -> float:
-        """Return the minimum temperature, normalised to °C."""
+        """Return the minimum temperature."""
         if self._source_state:
-            return self._normalize_temp(
-                self._source_state.attributes.get("min_temp", 7)
-            )
-        return 7
+            return self._source_state.attributes.get("min_temp", 16)
+        return 16
 
     @property
     def max_temp(self) -> float:
-        """Return the maximum temperature, normalised to °C."""
+        """Return the maximum temperature."""
         if self._source_state:
-            return self._normalize_temp(
-                self._source_state.attributes.get("max_temp", 35)
-            )
-        return 35
+            return self._source_state.attributes.get("max_temp", 31)
+        return 31
