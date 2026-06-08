@@ -341,6 +341,17 @@ class MitsubishiHybridClimate(ClimateEntity):
             )
         return None
 
+    @property
+    def target_temperature_step(self) -> Optional[float]:
+        """Return the supported step of target temperature."""
+        if self._source_state:
+            step = self._source_state.attributes.get("target_temp_step")
+            if step is not None:
+                return float(step)
+
+        # Fallback standard di 0.5 gradi se la sorgente non lo dichiara
+        return 0.5
+
     # ════════════════════════════════════════════════════════════════
     # HVAC mode
     # ════════════════════════════════════════════════════════════════
