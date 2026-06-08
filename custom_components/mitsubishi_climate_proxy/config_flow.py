@@ -13,7 +13,7 @@ from homeassistant.components.select import DOMAIN as SELECT_DOMAIN
 from . import DOMAIN
 
 CONF_HORIZONTAL_VANE_ENTITY = "horizontal_vane_entity"
-
+_LOGGER = logging.getLogger(__name__)
 
 class MitsubishiHybridConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Mitsubishi Hybrid Climate."""
@@ -25,32 +25,32 @@ class MitsubishiHybridConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
 
         if user_input is not None:
-            # Validate input
             await self.async_set_unique_id(f"{user_input[CONF_SOURCE]}_hybrid")
             self._abort_if_unique_id_configured()
+
+            # Se l'utente non ha selezionato nulla per il wide vane, ripuliamo il dato
+            if not user_input.get(CONF_HORIZONTAL_VANE_ENTITY):
+                user_input[CONF_HORIZONTAL_VANE_ENTITY] = None
 
             return self.async_create_entry(
                 title=user_input.get(CONF_NAME, user_input[CONF_SOURCE]),
                 data=user_input
             )
 
-        # Get list of climate entities to offer in dropdown
-        climate_entities = [
-            ent.entity_id for ent in self.hass.states.async_all(CLIMATE_DOMAIN)
-        ]
-
-        # Get list of select entities (for horizontal vane)
-        select_entities = [
-            ent.entity_id for ent in self.hass.states.async_all(SELECT_DOMAIN)
-        ]
-        # Add empty option for "no horizontal vane"
-        select_entities_with_none = [""] + select_entities
-
+        # Definiamo lo schema usando i selettori nativi di Home Assistant
         data_schema = vol.Schema({
-            vol.Required(CONF_SOURCE): vol.In(climate_entities),
-            vol.Optional(CONF_NAME): str,
-            vol.Optional(CONF_HORIZONTAL_VANE_ENTITY): vol.In(
-                select_entities_with_none
+            # Selettore nativo per mostrare SOLO entità di tipo Climate
+            vol.Required(CONF_SOURCE): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="climate")
+            ),
+
+            # Campo testo semplice per il nome personalizzato
+            vol.Optional(CONF_NAME): selector.TextSelector(),
+
+            # Selettore nativo per mostrare SOLO entità di tipo Select (il WideVane)
+            # multiple=False e l'impostazione nativa permettono di lasciarlo vuoto
+            vol.Optional(CONF_HORIZONTAL_VANE_ENTITY): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="select")
             ),
         })
 
