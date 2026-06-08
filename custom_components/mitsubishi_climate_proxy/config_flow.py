@@ -6,12 +6,13 @@ import logging
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_NAME, CONF_SOURCE
-# Importiamo il modulo selector nativo di HA
 from homeassistant.helpers import selector
 
 from . import DOMAIN
 
+CONF_VERTICAL_VANE_ENTITY = "vertical_vane_entity"
 CONF_HORIZONTAL_VANE_ENTITY = "horizontal_vane_entity"
+
 _LOGGER = logging.getLogger(__name__)
 
 class MitsubishiHybridConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -27,7 +28,9 @@ class MitsubishiHybridConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             await self.async_set_unique_id(f"{user_input[CONF_SOURCE]}_hybrid")
             self._abort_if_unique_id_configured()
 
-            # Se l'utente non ha selezionato nulla per il wide vane, ripuliamo il dato
+            # Pulizia dati se lasciati vuoti
+            if not user_input.get(CONF_VERTICAL_VANE_ENTITY):
+                user_input[CONF_VERTICAL_VANE_ENTITY] = None
             if not user_input.get(CONF_HORIZONTAL_VANE_ENTITY):
                 user_input[CONF_HORIZONTAL_VANE_ENTITY] = None
 
@@ -48,6 +51,9 @@ class MitsubishiHybridConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             # Selettore nativo per mostrare SOLO entità di tipo Select (il WideVane)
             # multiple=False e l'impostazione nativa permettono di lasciarlo vuoto
+            vol.Optional(CONF_VERTICAL_VANE_ENTITY): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="select")
+            ),
             vol.Optional(CONF_HORIZONTAL_VANE_ENTITY): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="select")
             ),

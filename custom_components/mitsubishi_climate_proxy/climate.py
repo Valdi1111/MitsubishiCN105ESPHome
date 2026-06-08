@@ -34,12 +34,14 @@ from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 _LOGGER = logging.getLogger(__name__)
 
 CONF_SOURCE_ENTITY = "source_entity"
+CONF_VERTICAL_VANE_ENTITY = "vertical_vane_entity"
 CONF_HORIZONTAL_VANE_ENTITY = "horizontal_vane_entity"
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
         vol.Required(CONF_SOURCE_ENTITY): cv.entity_id,
         vol.Optional(CONF_NAME): cv.string,
+        vol.Optional(CONF_VERTICAL_VANE_ENTITY): cv.entity_id,
         vol.Optional(CONF_HORIZONTAL_VANE_ENTITY): cv.entity_id,
     }
 )
@@ -54,11 +56,13 @@ async def async_setup_platform(
     """Set up the Mitsubishi Hybrid Climate platform via YAML."""
     source_entity_id = config[CONF_SOURCE_ENTITY]
     name = config.get(CONF_NAME)
+    vertical_vane_entity_id = config.get(CONF_VERTICAL_VANE_ENTITY)
     horizontal_vane_entity_id = config.get(CONF_HORIZONTAL_VANE_ENTITY)
 
     async_add_entities(
         [MitsubishiHybridClimate(
             hass, name, source_entity_id,
+            vertical_vane_entity_id=vertical_vane_entity_id,
             horizontal_vane_entity_id=horizontal_vane_entity_id,
         )],
         True,
@@ -78,11 +82,13 @@ async def async_setup_entry(
         source_entity_id = entry.data.get(CONF_SOURCE_ENTITY)
 
     name = entry.data.get(CONF_NAME)
+    vertical_vane_entity_id = entry.data.get(CONF_VERTICAL_VANE_ENTITY)
     horizontal_vane_entity_id = entry.data.get(CONF_HORIZONTAL_VANE_ENTITY)
 
     async_add_entities(
         [MitsubishiHybridClimate(
             hass, name, source_entity_id, entry.entry_id,
+            vertical_vane_entity_id=vertical_vane_entity_id,
             horizontal_vane_entity_id=horizontal_vane_entity_id,
         )],
         True,
@@ -104,6 +110,7 @@ class MitsubishiHybridClimate(ClimateEntity):
         name: str | None,
         source_entity_id: str,
         unique_id: str | None = None,
+        vertical_vane_entity_id: str | None = None,
         horizontal_vane_entity_id: str | None = None,
     ) -> None:
         """Initialize the climate device."""
@@ -114,6 +121,9 @@ class MitsubishiHybridClimate(ClimateEntity):
         self._source_state = None
         self._attr_should_poll = False
         self._attr_unique_id = unique_id or f"{source_entity_id}_hybrid"
+        # Vertical vane (Vane) — optional select entity from ESPHome
+        self._vertical_vane_entity_id = horizontal_vane_entity_id
+        self._vertical_vane_state = None
         # Horizontal vane (WideVane) — optional select entity from ESPHome
         self._horizontal_vane_entity_id = horizontal_vane_entity_id
         self._horizontal_vane_state = None
@@ -125,6 +135,13 @@ class MitsubishiHybridClimate(ClimateEntity):
 
         # Track source climate entity changes
         tracked_entities = [self._source_entity_id]
+
+        # Track vertical vane select entity changes (if configured)
+        if self._vertical_vane_entity_id:
+            self._vertical_vane_state = self.hass.states.get(
+                self._vertical_vane_entity_id
+            )
+            tracked_entities.append(self._vertical_vane_entity_id)
 
         # Track horizontal vane select entity changes (if configured)
         if self._horizontal_vane_entity_id:
@@ -147,6 +164,8 @@ class MitsubishiHybridClimate(ClimateEntity):
 
         if entity_id == self._source_entity_id:
             self._source_state = new_state
+        elif entity_id == self._vertical_vane_entity_id:
+            self._vertical_vane_state = new_state
         elif entity_id == self._horizontal_vane_entity_id:
             self._horizontal_vane_state = new_state
 
@@ -194,6 +213,10 @@ class MitsubishiHybridClimate(ClimateEntity):
             features |= ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
         else:
             features |= ClimateEntityFeature.TARGET_TEMPERATURE
+
+        # Add independent vertical swing support when a vertical vane entity is configured
+        if self._vertical_vane_entity_id:
+            features |= ClimateEntityFeature.SWING_MODE
 
         # Add independent horizontal swing support when a horizontal vane entity is configured
         if self._horizontal_vane_entity_id:
@@ -518,29 +541,78 @@ class MitsubishiHybridClimate(ClimateEntity):
         )
 
     # ════════════════════════════════════════════════════════════════
-    # Swing mode — vertical (pass-through from source climate)
+    # Swing vertical mode — Vane (Mitsubishi-specific)
+    # Maps the ESPHome vertical_vane_select entity to the HA-native
+    # swing_mode API.
     # ════════════════════════════════════════════════════════════════
 
     @property
     def swing_mode(self) -> Optional[str]:
-        """Return the swing setting."""
-        if self._source_state:
-            return self._source_state.attributes.get("swing_mode")
-        return None
+        """Return the current vertical vane (WideVane) position.
+
+        Reads from the configured ESPHome select entity for vertical vane.
+        Returns None if no vertical vane entity is configured or unavailable.
+        """
+        if not self._vertical_vane_entity_id:
+            return None
+
+        if self._vertical_vane_state is None:
+            self._vertical_vane_state = self.hass.states.get(
+                self._vertical_vane_entity_id
+            )
+
+        if (
+            self._vertical_vane_state is None
+            or self._vertical_vane_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN)
+        ):
+            return None
+
+        return self._vertical_vane_state.state
 
     @property
     def swing_modes(self) -> Optional[List[str]]:
-        """Return the list of available swing modes."""
-        if self._source_state:
-            return self._source_state.attributes.get("swing_modes")
-        return None
+        """Return the list of available vertical vane positions.
 
-    async def async_set_swing_mode(self, swing_mode: str) -> None:
-        """Set new target swing operation."""
+        Reads the options from the ESPHome select entity's 'options' attribute.
+        Falls back to a default Mitsubishi WideVane set if options are unavailable.
+        """
+        if not self._vertical_vane_entity_id:
+            return None
+
+        if self._vertical_vane_state is None:
+            self._vertical_vane_state = self.hass.states.get(
+                self._vertical_vane_entity_id
+            )
+
+        if self._vertical_vane_state is not None:
+            options = self._vertical_vane_state.attributes.get("options")
+            if options:
+                return list(options)
+
+        # Fallback: standard Mitsubishi WideVane options
+        return ["AUTO", "↑↑", "↑", "—", "↓", "↓↓", "SWING"]
+
+    async def async_set_swing_mode(
+            self, swing_mode: str
+    ) -> None:
+        """Set new vertical vane (WideVane) position.
+
+        Forwards the command to the ESPHome select entity via the
+        select.select_option service.
+        """
+        if not self._vertical_vane_entity_id:
+            _LOGGER.warning(
+                "Cannot set vertical swing: no vertical_vane_entity configured"
+            )
+            return
+
         await self.hass.services.async_call(
-            "climate",
-            "set_swing_mode",
-            {"entity_id": self._source_entity_id, "swing_mode": swing_mode},
+            "select",
+            "select_option",
+            {
+                "entity_id": self._vertical_vane_entity_id,
+                "option": swing_mode,
+            },
             blocking=True,
         )
 
