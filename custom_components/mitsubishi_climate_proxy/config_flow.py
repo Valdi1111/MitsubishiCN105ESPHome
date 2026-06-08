@@ -2,6 +2,7 @@
 ## Role: UI-based configuration wizard for adding proxy instances via HA integrations page.
 ## Deps: homeassistant.config_entries, homeassistant.components.climate, homeassistant.components.select
 
+import logging
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
