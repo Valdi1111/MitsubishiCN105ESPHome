@@ -101,6 +101,7 @@ class MitsubishiHybridClimate(ClimateEntity):
     Wraps an ESPHome CN105 climate entity to provide:
     - Adaptive single/dual setpoint based on current HVAC mode
     - Fahrenheit normalisation (avoids double F→C conversion)
+    - Independent vertical swing via swing_mode
     - Independent horizontal swing via HA 2024.12+ swing_horizontal_mode
     """
 
@@ -122,7 +123,7 @@ class MitsubishiHybridClimate(ClimateEntity):
         self._attr_should_poll = False
         self._attr_unique_id = unique_id or f"{source_entity_id}_hybrid"
         # Vertical vane (Vane) — optional select entity from ESPHome
-        self._vertical_vane_entity_id = horizontal_vane_entity_id
+        self._vertical_vane_entity_id = vertical_vane_entity_id
         self._vertical_vane_state = None
         # Horizontal vane (WideVane) — optional select entity from ESPHome
         self._horizontal_vane_entity_id = horizontal_vane_entity_id
@@ -548,7 +549,7 @@ class MitsubishiHybridClimate(ClimateEntity):
 
     @property
     def swing_mode(self) -> Optional[str]:
-        """Return the current vertical vane (WideVane) position.
+        """Return the current vertical vane (Vane) position.
 
         Reads from the configured ESPHome select entity for vertical vane.
         Returns None if no vertical vane entity is configured or unavailable.
@@ -574,7 +575,7 @@ class MitsubishiHybridClimate(ClimateEntity):
         """Return the list of available vertical vane positions.
 
         Reads the options from the ESPHome select entity's 'options' attribute.
-        Falls back to a default Mitsubishi WideVane set if options are unavailable.
+        Falls back to a default Mitsubishi Vane set if options are unavailable.
         """
         if not self._vertical_vane_entity_id:
             return None
@@ -589,13 +590,13 @@ class MitsubishiHybridClimate(ClimateEntity):
             if options:
                 return list(options)
 
-        # Fallback: standard Mitsubishi WideVane options
+        # Fallback: standard Mitsubishi Vane options
         return ["AUTO", "↑↑", "↑", "—", "↓", "↓↓", "SWING"]
 
     async def async_set_swing_mode(
             self, swing_mode: str
     ) -> None:
-        """Set new vertical vane (WideVane) position.
+        """Set new vertical vane (Vane) position.
 
         Forwards the command to the ESPHome select entity via the
         select.select_option service.
