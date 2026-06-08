@@ -529,7 +529,7 @@ class MitsubishiHybridClimate(ClimateEntity):
     def fan_modes(self) -> Optional[List[str]]:
         """Return the list of available fan modes."""
         if self._source_state:
-            return self._source_state.attributes.get("fan_modes")
+            return ["auto", "diffuse", "low", "middle", "medium", "high"]#self._source_state.attributes.get("fan_modes")
         return None
 
     async def async_set_fan_mode(self, fan_mode: str) -> None:
