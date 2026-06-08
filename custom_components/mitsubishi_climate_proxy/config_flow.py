@@ -5,11 +5,9 @@
 import logging
 import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.core import callback
 from homeassistant.const import CONF_NAME, CONF_SOURCE
-import homeassistant.helpers.config_validation as cv
-from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
-from homeassistant.components.select import DOMAIN as SELECT_DOMAIN
+# Importiamo il modulo selector nativo di HA
+from homeassistant.helpers import selector
 
 from . import DOMAIN
 
