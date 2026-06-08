@@ -198,22 +198,7 @@ class MitsubishiHybridClimate(ClimateEntity):
             return ClimateEntityFeature(0)
 
         # Get source features
-        source_features = self._source_state.attributes.get("supported_features", 0)
-
-        # Mask out the temperature related flags to reset them
-        # We start fresh with temperature features
-        features = source_features & ~ClimateEntityFeature.TARGET_TEMPERATURE
-        features = features & ~ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
-
-        # Dynamically add the flag based on current mode
-        # Use RANGE if we are in HEAT_COOL mode, OR if we are in OFF mode and the device supports HEAT_COOL
-        # (This ensures OFF mode shows dual setpoints instead of being empty, as OFF typically lacks a single 'temperature' attribute on dual-sp entities)
-        if self.hvac_mode == HVACMode.HEAT_COOL or (
-            self.hvac_mode == HVACMode.OFF and HVACMode.HEAT_COOL in self.hvac_modes
-        ):
-            features |= ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
-        else:
-            features |= ClimateEntityFeature.TARGET_TEMPERATURE
+        features = self._source_state.attributes.get("supported_features", 0)
 
         # Add independent vertical swing support when a vertical vane entity is configured
         if self._vertical_vane_entity_id:
@@ -289,64 +274,38 @@ class MitsubishiHybridClimate(ClimateEntity):
     def current_temperature(self) -> Optional[float]:
         """Return the current temperature normalised to °C."""
         if self._source_state:
-            return self._normalize_temp(
-                self._source_state.attributes.get("current_temperature")
-            )
+            return self._source_state.attributes.get("current_temperature")
         return None
 
     @property
     def target_temperature(self) -> Optional[float]:
         """Return the temperature we try to reach, normalised to °C."""
-        if not self._source_state:
-            return None
-
-        # Try to get direct attribute first
-        val = self._source_state.attributes.get("temperature")
-        if val is not None:
-            return self._normalize_temp(val)
-
-        # Fallback to derived values if source is in dual mode but we are presenting single
-        low = self._source_state.attributes.get("target_temp_low")
-        high = self._source_state.attributes.get("target_temp_high")
-
-        if self.hvac_mode == HVACMode.HEAT:
-            return self._normalize_temp(low if low is not None else high)
-        elif self.hvac_mode == HVACMode.COOL:
-            return self._normalize_temp(high if high is not None else low)
-        elif self.hvac_mode == HVACMode.DRY:
-            # Mode DRY uses cooling logic (high setpoint or single)
-            return self._normalize_temp(high if high is not None else low)
-        elif self.hvac_mode == HVACMode.AUTO:
-            if low is not None and high is not None:
-                return self._normalize_temp((low + high) / 2.0)
-            return self._normalize_temp(low if low is not None else high)
-
-        return None
-
-    @property
-    def target_temp_high(self) -> Optional[float]:
-        """Return the highbound target temperature, normalised to °C."""
         if self._source_state:
-            return self._normalize_temp(
-                self._source_state.attributes.get("target_temp_high")
-            )
-        return None
-
-    @property
-    def target_temp_low(self) -> Optional[float]:
-        """Return the lowbound target temperature, normalised to °C."""
-        if self._source_state:
-            return self._normalize_temp(
-                self._source_state.attributes.get("target_temp_low")
-            )
+            return self._source_state.attributes.get("temperature")
         return None
 
     @property
     def target_temperature_step(self) -> Optional[float]:
         """Return the supported step of target temperature."""
-        if self._source_state:
-            return self._source_state.attributes.get("target_temperature_step", 1)
-        return 1
+        return 1.0
+
+    # @property
+    # def extra_state_attributes(self) -> dict[str, Any]:
+    #     """Return the optional state attributes."""
+    #     attributes = {}
+    #
+    #     if self._source_state:
+    #         source_attrs = self._source_state.attributes
+    #
+    #         # Frequenza compressore
+    #         comp_freq = source_attrs.get("compressor_frequency") or source_attrs.get("compressor_freq")
+    #         if comp_freq is not None:
+    #             attributes["compressor_frequency"] = comp_freq
+    #
+    #         # FORZIAMO il passo visibile negli attributi per verifica statistica
+    #         attributes["target_temperature_step"] = self.target_temperature_step
+    #
+    #     return attributes
 
     # ════════════════════════════════════════════════════════════════
     # HVAC mode
