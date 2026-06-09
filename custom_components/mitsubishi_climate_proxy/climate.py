@@ -228,34 +228,6 @@ class MitsubishiHybridClimate(ClimateEntity):
         """
         return self.hass.config.units.temperature_unit
 
-    def _normalize_temp(self, val: Optional[float]) -> Optional[float]:
-        """Convert a source temperature to °C if the source advertises °F.
-
-        When fahrenheit_compatibility is active on the ESPHome side, the source
-        climate entity already exposes values in Fahrenheit.  If we forward that
-        unit to HA unchanged, HA applies a *second* F→display conversion,
-        resulting in values ~2.26× too high (e.g. 69 °F → 156 °F).
-        By normalising everything to Celsius here we break that double-
-        conversion loop without affecting Celsius-only setups.
-        """
-        if val is None:
-            return None
-        if self._source_unit == UnitOfTemperature.FAHRENHEIT:
-            return (val - 32.0) * 5.0 / 9.0
-        return val
-
-    def _denormalize_temp(self, val: Optional[float]) -> Optional[float]:
-        """Convert a Celsius setpoint back to °F before forwarding to the source.
-
-        HA sends setpoints in the unit declared by temperature_unit (always °C
-        for this proxy).  When the source entity expects °F we must convert back.
-        """
-        if val is None:
-            return None
-        if self._source_unit == UnitOfTemperature.FAHRENHEIT:
-            return val * 9.0 / 5.0 + 32.0
-        return val
-
     @property
     def temperature_unit(self) -> str:
         """Always report Celsius to prevent HA from applying a second conversion.
@@ -288,24 +260,6 @@ class MitsubishiHybridClimate(ClimateEntity):
     def target_temperature_step(self) -> Optional[float]:
         """Return the supported step of target temperature."""
         return 1.0
-
-    # @property
-    # def extra_state_attributes(self) -> dict[str, Any]:
-    #     """Return the optional state attributes."""
-    #     attributes = {}
-    #
-    #     if self._source_state:
-    #         source_attrs = self._source_state.attributes
-    #
-    #         # Frequenza compressore
-    #         comp_freq = source_attrs.get("compressor_frequency") or source_attrs.get("compressor_freq")
-    #         if comp_freq is not None:
-    #             attributes["compressor_frequency"] = comp_freq
-    #
-    #         # FORZIAMO il passo visibile negli attributi per verifica statistica
-    #         attributes["target_temperature_step"] = self.target_temperature_step
-    #
-    #     return attributes
 
     # ════════════════════════════════════════════════════════════════
     # HVAC mode
@@ -378,97 +332,8 @@ class MitsubishiHybridClimate(ClimateEntity):
         """Set new target temperature."""
         service_data: dict[str, Any] = {"entity_id": self._source_entity_id}
 
-        # Check source capabilities
-        source_features = 0
-        if self._source_state:
-            source_features = self._source_state.attributes.get("supported_features", 0)
-
-        source_is_dual = source_features & ClimateEntityFeature.TARGET_TEMPERATURE_RANGE
-
-        # Determine effective mode (target mode if changing, else current)
-        mode = kwargs.get("hvac_mode", self.hvac_mode)
-
-        if "target_temp_low" in kwargs or "target_temp_high" in kwargs:
-            # Direct dual control — HA sends values in °C (our declared unit),
-            # convert back to source unit before forwarding.
-            if "target_temp_low" in kwargs:
-                service_data["target_temp_low"] = self._denormalize_temp(
-                    kwargs["target_temp_low"]
-                )
-            if "target_temp_high" in kwargs:
-                service_data["target_temp_high"] = self._denormalize_temp(
-                    kwargs["target_temp_high"]
-                )
-        elif "temperature" in kwargs:
-            # HA sends the setpoint in °C (our declared unit); convert to source unit.
-            t = self._denormalize_temp(kwargs["temperature"])
-            # curr_high / curr_low are already in source unit (raw attributes),
-            # so comparisons are safe in the same unit.
-            raw_high = self._source_state.attributes.get("target_temp_high") if self._source_state else None
-            raw_low = self._source_state.attributes.get("target_temp_low") if self._source_state else None
-
-            # If source is NOT dual (single setpoint), just send temperature directly
-            if not source_is_dual:
-                service_data["temperature"] = t
-            elif mode == HVACMode.HEAT:
-                service_data["target_temp_low"] = t
-                # Get current high to ensure we send a complete pair
-                curr_high = raw_high
-                if curr_high is None:
-                    # Fallback if unknown, usually safe to assume a delta or max
-                    curr_high = self._denormalize_temp(self.max_temp)
-
-                # Ensure high >= low
-                if t > curr_high:
-                    service_data["target_temp_high"] = t
-                else:
-                    service_data["target_temp_high"] = curr_high
-
-            elif mode == HVACMode.COOL:
-                service_data["target_temp_high"] = t
-                # Get current low to ensure we send a complete pair
-                curr_low = raw_low
-                if curr_low is None:
-                    curr_low = self._denormalize_temp(self.min_temp)
-
-                # Ensure low <= high
-                if t < curr_low:
-                    service_data["target_temp_low"] = t
-                else:
-                    service_data["target_temp_low"] = curr_low
-
-            elif mode == HVACMode.DRY:
-                # Mode DRY treats target as a cooling setpoint
-                service_data["target_temp_high"] = t
-                # Get current low to ensure we send a complete pair
-                curr_low = raw_low
-                if curr_low is None:
-                    curr_low = self._denormalize_temp(self.min_temp)
-
-                # Ensure low <= high to keep consistency
-                if t < curr_low:
-                    service_data["target_temp_low"] = t
-                else:
-                    service_data["target_temp_low"] = curr_low
-
-            elif mode == HVACMode.AUTO:
-                # Move range, keeping spread — work in source unit (raw)
-                curr_low = raw_low
-                curr_high = raw_high
-
-                # Default spread if unknown (2° in source unit)
-                if curr_low is None:
-                    curr_low = t - 2
-                if curr_high is None:
-                    curr_high = t + 2
-
-                spread = curr_high - curr_low
-
-                service_data["target_temp_low"] = t - (spread / 2.0)
-                service_data["target_temp_high"] = t + (spread / 2.0)
-            else:
-                # Fan_only, etc.
-                service_data["temperature"] = t
+        if "temperature" in kwargs:
+            service_data["temperature"] = kwargs["temperature"]
 
         if "hvac_mode" in kwargs:
             service_data["hvac_mode"] = kwargs["hvac_mode"]
@@ -488,14 +353,17 @@ class MitsubishiHybridClimate(ClimateEntity):
     def fan_mode(self) -> Optional[str]:
         """Return the fan setting."""
         if self._source_state:
-            return self._source_state.attributes.get("fan_mode")
+            mode = self._source_state.attributes.get("fan_mode")
+            if mode == "quiet":
+                return "diffuse"
+            return mode
         return None
 
     @property
     def fan_modes(self) -> Optional[List[str]]:
         """Return the list of available fan modes."""
         if self._source_state:
-            return ["auto", "diffuse", "low", "middle", "medium", "high"]
+            return ["auto", "diffuse", "low", "medium", "middle", "high"]
             #return self._source_state.attributes.get("fan_modes")
         return None
 
